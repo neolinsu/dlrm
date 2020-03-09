@@ -728,7 +728,7 @@ if __name__ == "__main__":
         print("initial parameters (weights and bias):")
         for param in dlrm.parameters():
             print(param.detach().cpu().numpy())
-        # print(dlrm)
+        print(dlrm)
 
     if use_gpu:
         # Custom Model-Data Parallel
@@ -751,7 +751,13 @@ if __name__ == "__main__":
 
     if not args.inference_only:
         # specify the optimizer algorithm
-        optimizer = torch.optim.SGD(dlrm.parameters(), lr=args.learning_rate)
+        optimizer_emb = torch.optim.SGD(dlrm.emb_l.parameters(), lr=args.learning_rate)
+        optimizer = torch.optim.Adam(
+            [
+                {'params':dlrm.bot_l.parameters()},
+                {'params':dlrm.top_l.parameters()}
+            ],
+        lr=args.learning_rate)
 
     ### main loop ###
     def time_wrap(use_gpu):
@@ -839,6 +845,7 @@ if __name__ == "__main__":
         ld_gA_test = ld_model["test_acc"]
         ld_gL_test = ld_model["test_loss"]
         if not args.inference_only:
+            optimizer_emb.load_state_dict(ld_model["opt_emb_state_dict"])
             optimizer.load_state_dict(ld_model["opt_state_dict"])
             best_gA_test = ld_gA_test
             total_loss = ld_total_loss
@@ -924,6 +931,7 @@ if __name__ == "__main__":
                 if not args.inference_only:
                     # scaled error gradient propagation
                     # (where we do not accumulate gradients across mini-batches)
+                    optimizer_emb.zero_grad()
                     optimizer.zero_grad()
                     # backward pass
                     E.backward()
@@ -933,6 +941,7 @@ if __name__ == "__main__":
                     #          print(l.weight.grad.norm().item())
 
                     # optimizer
+                    optimizer_emb.step()
                     optimizer.step()
 
                 if args.mlperf_logging:
@@ -1098,6 +1107,7 @@ if __name__ == "__main__":
                                     "test_loss": gL_test,
                                     "total_loss": total_loss,
                                     "total_accu": total_accu,
+                                    "opt_emb_state_dict": optimizer_emb.state_dict(),
                                     "opt_state_dict": optimizer.state_dict(),
                                 },
                                 args.save_model,
