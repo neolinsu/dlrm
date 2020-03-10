@@ -80,11 +80,12 @@ import torch.nn as nn
 from torch.nn.parallel.parallel_apply import parallel_apply
 from torch.nn.parallel.replicate import replicate
 from torch.nn.parallel.scatter_gather import gather, scatter
+from torch.utils.tensorboard import SummaryWriter
+
 # quotient-remainder trick
 from tricks.qr_embedding_bag import QREmbeddingBag
 # mixed-dimension trick
 from tricks.md_embedding_bag import PrEmbeddingBag, md_solver
-
 import sklearn.metrics
 
 # from torchviz import make_dot
@@ -525,6 +526,7 @@ if __name__ == "__main__":
         print('command line args: ', json.dumps(vars(args)))
 
     ### some basic setup ###
+    writer = SummaryWriter()
     np.random.seed(args.numpy_rand_seed)
     np.set_printoptions(precision=args.print_precision)
     torch.set_printoptions(precision=args.print_precision)
@@ -979,6 +981,8 @@ if __name__ == "__main__":
                         )
                         + "loss {:.6f}, accuracy {:3.3f} %".format(gL, gA * 100)
                     )
+                    writer.add_scalar('Loss/train', gL, k)
+                    writer.add_scalar('Acc/train', gA, k)
                     # Uncomment the line below to print out the total time with overhead
                     # print("Accumulated time so far: {}" \
                     # .format(time_wrap(use_gpu) - accum_time_begin))
@@ -1145,6 +1149,9 @@ if __name__ == "__main__":
                                 gL_test, gA_test * 100, best_gA_test * 100
                             )
                         )
+                        writer.add_scalar('Loss/test', gL_test, k)
+                        writer.add_scalar('Acc/test', gA_test, k)
+                        writer.add_scalar('BestAcc/test', best_gA_test, k)
                     # Uncomment the line below to print out the total time with overhead
                     # print("Total test time for this group: {}" \
                     # .format(time_wrap(use_gpu) - accum_test_time_begin))
@@ -1202,3 +1209,4 @@ if __name__ == "__main__":
         dlrm_pytorch_onnx = onnx.load("dlrm_s_pytorch.onnx")
         # check the onnx model
         onnx.checker.check_model(dlrm_pytorch_onnx)
+    writer.close()
