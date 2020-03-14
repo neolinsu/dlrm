@@ -548,12 +548,14 @@ if __name__ == "__main__":
         args.sparse_lr = response.sparseLR # replace
         args.dense_opt = response.sparseOpt # replace
         args.dense_lr = response.sparseLR # replace
+        if args.save_model is not "":
+            args.save_model = f"{args.save_model}DENSE-{args.dense_opt}-{args.dense_lr}-SPARSE-{args.sparse_opt}-{args.sparse_lr}.best.ckpt"
     ##################################################################
         if args.mlperf_logging:
             print('command line args: ', json.dumps(vars(args)))
     
         ### some basic setup ###
-        writer = SummaryWriter(f"{TENSORBOARD_DIR}-DENSE-{args.dense_opt}-{args.dense_lr}-SPARSE-{args.sparse_opt}-{args.sparse_lr}")
+        writer = SummaryWriter(f"{TENSORBOARD_DIR}DENSE-{args.dense_opt}-{args.dense_lr}-SPARSE-{args.sparse_opt}-{args.sparse_lr}")
         np.random.seed(args.numpy_rand_seed)
         np.set_printoptions(precision=args.print_precision)
         torch.set_printoptions(precision=args.print_precision)
