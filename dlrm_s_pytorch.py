@@ -1016,7 +1016,7 @@ if __name__ == "__main__":
                     )
                     writer.add_scalar('LOSS/train', gL, k*batch_num_of_epoch + j)
                     writer.add_scalar('ACC/train', gA, k*batch_num_of_epoch +j)
-                    T_AUC = metrics.auc(np.array(ZZ), np.array(TT))
+                    T_AUC = metrics.roc_auc_score(np.array(ZZ), np.array(TT))
                     ZZ = []
                     TT = []
                     writer.add_scalar('AUC/train', T_AUC, k*batch_num_of_epoch +j)
@@ -1191,7 +1191,7 @@ if __name__ == "__main__":
                         )
                         writer.add_scalar('LOSS/test', gL_test, k * batch_num_of_epoch + j)
                         writer.add_scalar('ACC/test', gA_test, k * batch_num_of_epoch +j)
-                        TEST_AUC = metrics.auc(np.array(ZZ_TEST), np.array(TT_TEST))
+                        TEST_AUC = metrics.roc_auc_score(np.array(ZZ_TEST), np.array(TT_TEST))
                         del ZZ_TEST
                         del TT_TEST
                         writer.add_scalar('AUC/test', TEST_AUC, k * batch_num_of_epoch +j)
