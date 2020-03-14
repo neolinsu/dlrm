@@ -1043,7 +1043,7 @@ if __name__ == "__main__":
                         writer.add_scalar('ACC/train', gA, k*batch_num_of_epoch +j)
                         # T_AUC = metrics.roc_auc_score(np.array(TT), np.array(ZZ))
                         
-                        writer.add_scalar('AUC/train', TEST_AUC, k*batch_num_of_epoch +j)
+                        writer.add_scalar('AUC/train', TRAIN_AUC, k*batch_num_of_epoch +j)
                         # Uncomment the line below to print out the total time with overhead
                         # print("Accumulated time so far: {}" \
                         # .format(time_wrap(use_gpu) - accum_time_begin))
