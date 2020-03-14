@@ -52,7 +52,7 @@
 # Recommendation Systems", CoRR, arXiv:1906.00091, 2019
 
 from __future__ import absolute_import, division, print_function, unicode_literals
-
+TENSORBOARD_DIR = './log/'
 # miscellaneous
 import builtins
 import functools
@@ -490,7 +490,7 @@ if __name__ == "__main__":
     # training
     parser.add_argument("--mini-batch-size", type=int, default=1)
     parser.add_argument("--nepochs", type=int, default=1)
-    parser.add_argument("--learning-rate", type=float, default=0.01)
+    # parser.add_argument("--learning-rate", type=float, default=0.01)
     parser.add_argument("--print-precision", type=int, default=5)
     parser.add_argument("--numpy-rand-seed", type=int, default=123)
     parser.add_argument("--sync-dense-params", type=bool, default=True)
@@ -520,13 +520,17 @@ if __name__ == "__main__":
     parser.add_argument("--mlperf-auc-threshold", type=float, default=0.0)
     parser.add_argument("--mlperf-bin-loader", action='store_true', default=False)
     parser.add_argument("--mlperf-bin-shuffle", action='store_true', default=False)
+    parser.add_argument("--dense-opt", choices=('adam', 'sgd', 'adagrad'), default='sgd')
+    parser.add_argument("--sparse-opt", choices=('adam', 'sgd', 'adagrad'), default='sgd')
+    parser.add_argument("--dense-lr", type=float, default=0.1)
+    parser.add_argument("--sparse-lr", type=float, default=0.1)
     args = parser.parse_args()
 
     if args.mlperf_logging:
         print('command line args: ', json.dumps(vars(args)))
 
     ### some basic setup ###
-    writer = SummaryWriter()
+    writer = SummaryWriter(f"{TENSORBOARD_DIR}-DENSE-{args.dense_opt}-{args.dense_lr}-SPARSE-{args.sparse_opt}-{args.sparse_lr}")
     np.random.seed(args.numpy_rand_seed)
     np.set_printoptions(precision=args.print_precision)
     torch.set_printoptions(precision=args.print_precision)
@@ -753,13 +757,34 @@ if __name__ == "__main__":
 
     if not args.inference_only:
         # specify the optimizer algorithm
-        optimizer_emb = torch.optim.SGD(dlrm.emb_l.parameters(), lr=args.learning_rate)
-        optimizer = torch.optim.Adam(
-            [
-                {'params':dlrm.bot_l.parameters()},
-                {'params':dlrm.top_l.parameters()}
-            ],
-        lr=args.learning_rate)
+        if args.sparse_opt == 'sgd':
+            optimizer_emb = torch.optim.SGD(dlrm.emb_l.parameters(), lr=args.sparse_lr)
+        elif args.sparse_opt == 'Adam':
+            optimizer_emb = torch.optim.SparseAdam(dlrm.emb_l.parameters(), lr=args.sparse_lr)
+        else:
+            optimizer_emb = torch.optim.Adagrad(dlrm.emb_l.parameters(), lr=args.sparse_lr)
+
+        if args.dense_opt == 'sgd':
+            optimizer = torch.optim.SGD(
+                [
+                    {'params':dlrm.bot_l.parameters()},
+                    {'params':dlrm.top_l.parameters()}
+                ],
+            lr=args.dense_lr)
+        elif args.dense_opt == 'Adam':
+            optimizer = torch.optim.Adam(
+                [
+                    {'params':dlrm.bot_l.parameters()},
+                    {'params':dlrm.top_l.parameters()}
+                ],
+            lr=args.dense_lr)
+        else:
+            optimizer = torch.optim.Adagrad(
+                [
+                    {'params':dlrm.bot_l.parameters()},
+                    {'params':dlrm.top_l.parameters()}
+                ],
+            lr=args.dense_lr)
 
     ### main loop ###
     def time_wrap(use_gpu):
@@ -875,6 +900,8 @@ if __name__ == "__main__":
         )
 
     print("time/loss/accuracy (if enabled):")
+    from sklearn import metrics
+    batch_num_of_epoch = 0
     with torch.autograd.profiler.profile(args.enable_profiling, use_gpu) as prof:
         while k < args.nepochs:
             print(f'epoch:{k}/n--------------', flush=True)
@@ -886,7 +913,10 @@ if __name__ == "__main__":
             if args.mlperf_logging:
                 previous_iteration_time = None
 
+            ZZ = []
+            TT = []
             for j, (X, lS_o, lS_i, T) in enumerate(train_ld):
+                batch_num_of_epoch = j if j > batch_num_of_epoch else batch_num_of_epoch
                 if j < skip_upto_batch:
                     continue
 
@@ -918,6 +948,8 @@ if __name__ == "__main__":
 
                 # loss
                 E = loss_fn_wrap(Z, T, use_gpu, device)
+                ZZ += list(Z.detach().cpu().numpy())
+                TT += list(T.detach().cpu().numpy())
                 '''
                 # debug prints
                 print("output and loss")
@@ -934,8 +966,8 @@ if __name__ == "__main__":
                 if not args.inference_only:
                     # scaled error gradient propagation
                     # (where we do not accumulate gradients across mini-batches)
-                    optimizer_emb.zero_grad()
                     optimizer.zero_grad()
+                    optimizer_emb.zero_grad()
                     # backward pass
                     E.backward()
                     # debug prints (check gradient norm)
@@ -944,8 +976,8 @@ if __name__ == "__main__":
                     #          print(l.weight.grad.norm().item())
 
                     # optimizer
-                    optimizer_emb.step()
                     optimizer.step()
+                    optimizer_emb.step()
 
                 if args.mlperf_logging:
                     total_time += iteration_time
@@ -982,8 +1014,12 @@ if __name__ == "__main__":
                         )
                         + "loss {:.6f}, accuracy {:3.3f} %".format(gL, gA * 100)
                     )
-                    writer.add_scalar('Loss/train', gL, k)
-                    writer.add_scalar('Acc/train', gA, k)
+                    writer.add_scalar('LOSS/train', gL, k*batch_num_of_epoch + j)
+                    writer.add_scalar('ACC/train', gA, k*batch_num_of_epoch +j)
+                    T_AUC = metrics.auc(np.array(ZZ), np.array(TT))
+                    ZZ = []
+                    TT = []
+                    writer.add_scalar('AUC/train', T_AUC, k*batch_num_of_epoch +j)
                     # Uncomment the line below to print out the total time with overhead
                     # print("Accumulated time so far: {}" \
                     # .format(time_wrap(use_gpu) - accum_time_begin))
@@ -1004,7 +1040,8 @@ if __name__ == "__main__":
                     if args.mlperf_logging:
                         scores = []
                         targets = []
-
+                    ZZ_TEST = []
+                    TT_TEST = []
                     for i, (X_test, lS_o_test, lS_i_test, T_test) in enumerate(test_ld):
                         # early exit if nbatches was set by the user and was exceeded
                         if nbatches > 0 and i >= nbatches:
@@ -1016,6 +1053,8 @@ if __name__ == "__main__":
                         Z_test = dlrm_wrap(
                             X_test, lS_o_test, lS_i_test, use_gpu, device
                         )
+                        ZZ_TEST += list(Z_test.detach().cpu().numpy())
+                        TT_TEST += list(T_test.detach().cpu().numpy())
                         if args.mlperf_logging:
                             S_test = Z_test.detach().cpu().numpy()  # numpy array
                             T_test = T_test.detach().cpu().numpy()  # numpy array
@@ -1150,9 +1189,13 @@ if __name__ == "__main__":
                                 gL_test, gA_test * 100, best_gA_test * 100
                             )
                         )
-                        writer.add_scalar('Loss/test', gL_test, k)
-                        writer.add_scalar('Acc/test', gA_test, k)
-                        writer.add_scalar('BestAcc/test', best_gA_test, k)
+                        writer.add_scalar('LOSS/test', gL_test, k * batch_num_of_epoch + j)
+                        writer.add_scalar('ACC/test', gA_test, k * batch_num_of_epoch +j)
+                        TEST_AUC = metrics.auc(np.array(ZZ_TEST), np.array(TT_TEST))
+                        del ZZ_TEST
+                        del TT_TEST
+                        writer.add_scalar('AUC/test', TEST_AUC, k * batch_num_of_epoch +j)
+                        writer.add_scalar('BESTACC/test', best_gA_test, k * batch_num_of_epoch +j)
                     # Uncomment the line below to print out the total time with overhead
                     # print("Total test time for this group: {}" \
                     # .format(time_wrap(use_gpu) - accum_test_time_begin))
