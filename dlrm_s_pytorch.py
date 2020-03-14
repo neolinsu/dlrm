@@ -927,6 +927,7 @@ if __name__ == "__main__":
         print("time/loss/accuracy (if enabled):")
         from sklearn import metrics
         batch_num_of_epoch = 0
+        TRAIN_AUC = 0
         with torch.autograd.profiler.profile(args.enable_profiling, use_gpu) as prof:
             while k < args.nepochs:
                 print(f'epoch:{k}/n--------------', flush=True)
@@ -938,8 +939,6 @@ if __name__ == "__main__":
                 if args.mlperf_logging:
                     previous_iteration_time = None
 
-                ZZ = []
-                TT = []
                 for j, (X, lS_o, lS_i, T) in enumerate(train_ld):
                     batch_num_of_epoch = j if j > batch_num_of_epoch else batch_num_of_epoch
                     if j < skip_upto_batch:
@@ -973,8 +972,9 @@ if __name__ == "__main__":
 
                     # loss
                     E = loss_fn_wrap(Z, T, use_gpu, device)
-                    ZZ += list(Z.detach().cpu().numpy())
-                    TT += list(T.detach().cpu().numpy())
+                    ZZ = Z.detach().cpu().numpy()
+                    TT = T.detach().cpu().numpy()
+                    TRAIN_AUC += metrics.roc_auc_score(TT, ZZ)
                     '''
                     # debug prints
                     print("output and loss")
@@ -1031,7 +1031,7 @@ if __name__ == "__main__":
 
                         gL = total_loss / total_samp
                         total_loss = 0
-
+                        TRAIN_AUC = TRAIN_AUC / total_iter
                         str_run_type = "inference" if args.inference_only else "training"
                         print(
                             "Finished {} it {}/{} of epoch {}, {:.2f} ms/it, ".format(
@@ -1041,15 +1041,15 @@ if __name__ == "__main__":
                         )
                         writer.add_scalar('loss/train', gL, k*batch_num_of_epoch + j)
                         writer.add_scalar('ACC/train', gA, k*batch_num_of_epoch +j)
-                        T_AUC = metrics.roc_auc_score(np.array(TT), np.array(ZZ))
-                        ZZ = []
-                        TT = []
-                        writer.add_scalar('AUC/train', T_AUC, k*batch_num_of_epoch +j)
+                        # T_AUC = metrics.roc_auc_score(np.array(TT), np.array(ZZ))
+                        
+                        writer.add_scalar('AUC/train', TEST_AUC, k*batch_num_of_epoch +j)
                         # Uncomment the line below to print out the total time with overhead
                         # print("Accumulated time so far: {}" \
                         # .format(time_wrap(use_gpu) - accum_time_begin))
                         total_iter = 0
                         total_samp = 0
+                        TRAIN_AUC = 0
 
                     # testing
                     if should_test and not args.inference_only:
@@ -1060,13 +1060,12 @@ if __name__ == "__main__":
                         test_accu = 0
                         test_loss = 0
                         test_samp = 0
-
+                        test_iter = 0
                         accum_test_time_begin = time_wrap(use_gpu)
                         if args.mlperf_logging:
                             scores = []
                             targets = []
-                        ZZ_TEST = []
-                        TT_TEST = []
+                        TEST_AUC = 0
                         for i, (X_test, lS_o_test, lS_i_test, T_test) in enumerate(test_ld):
                             # early exit if nbatches was set by the user and was exceeded
                             if nbatches > 0 and i >= nbatches:
@@ -1078,8 +1077,9 @@ if __name__ == "__main__":
                             Z_test = dlrm_wrap(
                                 X_test, lS_o_test, lS_i_test, use_gpu, device
                             )
-                            ZZ_TEST += list(Z_test.detach().cpu().numpy())
-                            TT_TEST += list(T_test.detach().cpu().numpy())
+                            ZZ_TEST = Z_test.detach().cpu().numpy()
+                            TT_TEST = T_test.detach().cpu().numpy()
+                            TEST_AUC += metrics.roc_auc_score(TT_TEST, ZZ_TEST)
                             if args.mlperf_logging:
                                 S_test = Z_test.detach().cpu().numpy()  # numpy array
                                 T_test = T_test.detach().cpu().numpy()  # numpy array
@@ -1098,6 +1098,8 @@ if __name__ == "__main__":
                                 test_accu += A_test
                                 test_loss += L_test * mbs_test
                                 test_samp += mbs_test
+                                test_iter += 1
+                                
 
                             t2_test = time_wrap(use_gpu)
 
@@ -1216,9 +1218,7 @@ if __name__ == "__main__":
                             )
                             writer.add_scalar('LOSS/test', gL_test, k * batch_num_of_epoch + j)
                             writer.add_scalar('ACC/test', gA_test, k * batch_num_of_epoch +j)
-                            TEST_AUC = metrics.roc_auc_score(np.array(TT_TEST), np.array(ZZ_TEST))
-                            del ZZ_TEST
-                            del TT_TEST
+                            TEST_AUC /= test_iter
                             writer.add_scalar('AUC/test', TEST_AUC, k * batch_num_of_epoch +j)
                             writer.add_scalar('BESTACC/test', best_gA_test, k * batch_num_of_epoch +j)
                         # Uncomment the line below to print out the total time with overhead
