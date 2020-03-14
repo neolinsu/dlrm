@@ -1014,7 +1014,7 @@ if __name__ == "__main__":
                         )
                         + "loss {:.6f}, accuracy {:3.3f} %".format(gL, gA * 100)
                     )
-                    writer.add_scalar('LOSS/train', gL, k*batch_num_of_epoch + j)
+                    writer.add_scalar('loss/train', gL, k*batch_num_of_epoch + j)
                     writer.add_scalar('ACC/train', gA, k*batch_num_of_epoch +j)
                     T_AUC = metrics.roc_auc_score(np.array(TT), np.array(ZZ))
                     ZZ = []
